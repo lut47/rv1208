@@ -175,6 +175,3 @@ pollTweets(
         logWithTime(`tweet ${tweet.id} has been copied`);
     },
 );
-
-// render.com bypass
-Bun.serve({ port: process.env.PORT || 10000, fetch: () => new Response() });
