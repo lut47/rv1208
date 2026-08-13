@@ -59,7 +59,9 @@ const tg = new TelegramClient({
 });
 
 logWithTime("connecting to telegram");
-await tg.start();
+if (process.env.TG_SESSION)
+    await tg.start({ session: process.env.TG_SESSION, sessionForce: true });
+else await tg.start();
 logWithTime("connected to telegram");
 
 logWithTime("fetching the latest copied post date");
@@ -165,3 +167,6 @@ pollTweets(
         logWithTime(`tweet ${tweet.id} has been copied`);
     },
 );
+
+// render.com bypass
+Bun.serve({ port: 0, fetch: () => new Response() });
