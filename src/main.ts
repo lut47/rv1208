@@ -7,9 +7,9 @@ import {
 import { logWithTime, resolveAfter } from "./shared";
 import { fetchTweets, pollTweets, type Tweet } from "./twitter";
 
-const sourceTwitterProfileId = "1642521833973981184";
-const sourceTgChannelId = -1004429239095;
-const targetTgChannelId = -1003943671255;
+const sourceTwitterProfileId = process.env.SOURCE_TWITTER_PROFILE_ID!;
+const sourceTgChannelId = Number(process.env.SOURCE_TG_CHANNEL_ID);
+const targetTgChannelId = Number(process.env.TARGET_TG_CHANNEL_ID);
 
 const messageGroupAccumulationTimeoutMs = 1000;
 const _messageGroupCollectionTimeoutS =
