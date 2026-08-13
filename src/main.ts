@@ -1,0 +1,171 @@
+import { InputMedia, Message, TelegramClient } from "@mtcute/bun";
+import { logWithTime, resolveAfter } from "./shared";
+import {
+    fetchTwitterPosts,
+    pollTwitterPosts,
+    type TwitterPost,
+} from "./twitter";
+
+const sourceTwitterProfileId = "1642521833973981184";
+const sourceTgChannelId = -1004429239095;
+const targetTgChannelId = -1003943671255;
+
+const messageGroupAccumulationTimeoutMs = 1000;
+const _messageGroupCollectionTimeoutS =
+    messageGroupAccumulationTimeoutMs / 1000;
+const backfillDelayMs = 1000;
+const _backfillDelayS = backfillDelayMs / 1000;
+const twitterPostPollingDelayInMs = 30_000;
+
+const doBackfill = process.env.BACKFILL === "true";
+
+const createAsyncKeyedAccumulator = <K, T>(
+    timeout: number,
+    handleCollected: (key: K, values: T[]) => void,
+) => ({
+    groups: new Map<K, T[]>(),
+    async add(key: K, value: T) {
+        let values: T[];
+        if (this.groups.has(key)) (values = this.groups.get(key)!).push(value);
+        else this.groups.set(key, (values = [value]));
+        const prevLength = values.length;
+        await resolveAfter(timeout);
+        if (values.length === prevLength) return handleCollected(key, values);
+    },
+});
+
+const messageGroupAccumulator = createAsyncKeyedAccumulator<string, Message>(
+    messageGroupAccumulationTimeoutMs,
+    async (groupId, messages) => {
+        await tg.sendCopyGroup({
+            toChatId: targetTgChannelId,
+            messages,
+        });
+        logWithTime(`telegram post ${groupId} (message group) has been copied`);
+    },
+);
+
+const copyTwitterPost = (post: TwitterPost) =>
+    post.attachments.length
+        ? tg.sendMediaGroup(
+              targetTgChannelId,
+              post.attachments.map((attachment) =>
+                  attachment.type === "photo"
+                      ? InputMedia.photo(attachment.url)
+                      : InputMedia.video(attachment.url),
+              ),
+          )
+        : tg.sendText(targetTgChannelId, post.text);
+
+const tg = new TelegramClient({
+    apiId: Number(process.env.TG_API_ID),
+    apiHash: process.env.TG_API_HASH!,
+});
+
+logWithTime("connecting to telegram");
+await tg.start();
+logWithTime("connected to telegram");
+
+logWithTime("fetching the latest copied post date");
+const targetChannelMessages = doBackfill
+    ? await tg.getHistory(targetTgChannelId, { limit: 1 })
+    : [];
+const fromTime = targetChannelMessages[0]?.date.getTime() ?? 0;
+logWithTime(
+    `the latest copied post date has been fetched (if any, ${fromTime})`,
+);
+
+if (doBackfill) {
+    logWithTime("backfilling telegram posts");
+    const sourceChannelMessages = await tg.getHistory(sourceTgChannelId, {
+        limit: 100,
+    });
+    logWithTime("latest telegram posts have been fetched");
+    const latestSourceTelegramChannelMessages = [...sourceChannelMessages].sort(
+        (a, b) => a.date.getTime() - b.date.getTime(),
+    );
+    const missingMessageGroups = new Map<string, Message[]>();
+    for (const message of latestSourceTelegramChannelMessages) {
+        if (message.date.getTime() <= fromTime) continue;
+        if (message.groupedId) {
+            const groupId = message.groupedId.toString();
+            const group = missingMessageGroups.get(groupId);
+            if (group) group.push(message);
+            else missingMessageGroups.set(groupId, [message]);
+            continue;
+        }
+        logWithTime(`copying telegram post ${message.id}`);
+        await tg.sendCopy({ toChatId: targetTgChannelId, message });
+        logWithTime(`telegram post ${message.id} has been copied`);
+        logWithTime(
+            `(waiting ${_backfillDelayS}s to prevent flood block from telegram)`,
+        );
+        await resolveAfter(backfillDelayMs);
+    }
+    for (const [groupId, messages] of missingMessageGroups) {
+        logWithTime(`copying telegram post ${groupId} (message group)`);
+        await tg.sendCopyGroup({ toChatId: targetTgChannelId, messages });
+        logWithTime(`telegram post ${groupId} (message group) has been copied`);
+    }
+    logWithTime("backfilled telegram posts (if any)");
+
+    logWithTime("backfilling twitter posts");
+    const latestSourceTwitterProfilePosts = await fetchTwitterPosts(
+        sourceTwitterProfileId,
+    );
+    logWithTime("latest twitter posts has been fetched");
+    for (const post of latestSourceTwitterProfilePosts)
+        if (post.createdAt > fromTime) {
+            logWithTime(`copying twitter post ${post.id}`);
+            await copyTwitterPost(post);
+            logWithTime(`twitter post ${post.id} has been copied`);
+            logWithTime(
+                `(waiting ${_backfillDelayS}s to prevent flood block from telegram)`,
+            );
+            await resolveAfter(backfillDelayMs);
+        }
+    logWithTime("backfilled twitter posts (if any)");
+}
+
+tg.onNewMessage.add(async (message) => {
+    if (message.chat.id !== sourceTgChannelId) return;
+    if (message.groupedId) {
+        const groupId = message.groupedId.toString();
+        logWithTime(
+            `polled new telegram post part ${message.id} (message group ${groupId}): ${message.text || "(no text)"}`,
+        );
+        logWithTime(
+            `(waiting ${_messageGroupCollectionTimeoutS}s for more messages of message group ${groupId})`,
+        );
+        await messageGroupAccumulator.add(groupId, message);
+    }
+    logWithTime(
+        `polled new telegram post ${message.id}: ${message.text || "(no text)"}`,
+    );
+    logWithTime(`copying telegram post ${message.id}`);
+    await tg.sendCopy({ toChatId: targetTgChannelId, message });
+    logWithTime(`telegram post ${message.id} has been copied`);
+});
+
+pollTwitterPosts(
+    sourceTwitterProfileId,
+    twitterPostPollingDelayInMs,
+    fromTime,
+    async (post) => {
+        logWithTime(
+            `polled new twitter post ${post.id}: ${post.text || "(no text)"}`,
+        );
+        logWithTime(`copying twitter post ${post.id}`);
+        if (post.attachments.length)
+            await tg.sendMediaGroup(
+                targetTgChannelId,
+                post.attachments.map((attachment) =>
+                    attachment.type === "photo"
+                        ? InputMedia.photo(attachment.url)
+                        : InputMedia.video(attachment.url),
+                ),
+            );
+        else await tg.sendText(targetTgChannelId, post.text);
+        logWithTime(`twitter post ${post.id} has been copied`);
+    },
+);

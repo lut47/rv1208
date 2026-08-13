@@ -1,0 +1,15 @@
+{
+    "private": true,
+    "type": "module",
+    "name": "re1208",
+    "module": "index.ts",
+    "dependencies": {
+        "@mtcute/bun": "^0.31.0"
+    },
+    "devDependencies": {
+        "@types/bun": "latest"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    }
+}

@@ -1,0 +1,8 @@
+services:
+  tcrb:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./client.session:/app/client.session

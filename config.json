@@ -1,0 +1,18 @@
+{
+    "paused": false,
+    "sources": {
+        "x": ["scoopurban"],
+        "tg": ["TommyRobinsonNews"]
+    },
+    "targets": [
+        {
+            "handle": "channel",
+            "adminCreds": [
+                {
+                    "apiId": 1,
+                    "apiHash": ""
+                }
+            ]
+        }
+    ]
+}
