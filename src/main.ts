@@ -46,16 +46,22 @@ const messageGroupAccumulator = createAsyncKeyedAccumulator<string, Message>(
     },
 );
 
+const mediaGroupForPost = (post: Tweet) =>
+    post.attachments.map((attachment, i) =>
+        attachment.type === "photo"
+            ? InputMedia.photo(
+                  attachment.url,
+                  i === 0 ? { caption: post.text } : {},
+              )
+            : InputMedia.video(
+                  attachment.url,
+                  i === 0 ? { caption: post.text } : {},
+              ),
+    );
+
 const copyTwitterPost = (post: Tweet) =>
     post.attachments.length
-        ? tg.sendMediaGroup(
-              targetTgChannelId,
-              post.attachments.map((attachment) =>
-                  attachment.type === "photo"
-                      ? InputMedia.photo(attachment.url)
-                      : InputMedia.video(attachment.url),
-              ),
-          )
+        ? tg.sendMediaGroup(targetTgChannelId, mediaGroupForPost(post))
         : tg.sendText(targetTgChannelId, post.text);
 
 const tg = new TelegramClient({
@@ -72,16 +78,16 @@ if (!process.env.TG_SESSION) {
 } else await tg.start({ session: process.env.TG_SESSION, sessionForce: true });
 logWithTime("connected to telegram");
 
-logWithTime("fetching the latest copied post date");
-const targetChannelMessages = doBackfill
-    ? await tg.getHistory(targetTgChannelId, { limit: 1 })
-    : [];
-const fromTime = targetChannelMessages[0]?.date.getTime() ?? 0;
-logWithTime(
-    `the latest copied post date has been fetched (if any, ${fromTime})`,
-);
-
 if (doBackfill) {
+    logWithTime("backfilling posts");
+    logWithTime("fetching the latest copied post date");
+    const targetChannelMessages = await tg.getHistory(targetTgChannelId, {
+        limit: 1,
+    });
+    const fromTime = targetChannelMessages[0]?.date.getTime() ?? 0;
+    logWithTime(
+        `the latest copied post date has been fetched (if any, ${fromTime})`,
+    );
     logWithTime("backfilling telegram posts");
     const sourceChannelMessages = await tg.getHistory(sourceTgChannelId, {
         limit: 100,
@@ -156,7 +162,6 @@ tg.onNewMessage.add(async (message) => {
 pollTweets(
     sourceTwitterProfileId,
     twitterPostPollingDelayInMs,
-    fromTime,
     async (tweet) => {
         logWithTime(
             `polled new tweet ${tweet.id}: ${tweet.text || "(no text)"}`,
@@ -165,11 +170,7 @@ pollTweets(
         if (tweet.attachments.length)
             await tg.sendMediaGroup(
                 targetTgChannelId,
-                tweet.attachments.map((attachment) =>
-                    attachment.type === "photo"
-                        ? InputMedia.photo(attachment.url)
-                        : InputMedia.video(attachment.url),
-                ),
+                mediaGroupForPost(tweet),
             );
         else await tg.sendText(targetTgChannelId, tweet.text);
         logWithTime(`tweet ${tweet.id} has been copied`);

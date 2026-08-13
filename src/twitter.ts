@@ -15,19 +15,19 @@ export type Tweet = {
 export const pollTweets = async (
     userId: string,
     delayInMs: number,
-    fromTime: number,
     handleTweet: (tweet: Tweet) => void,
 ) => {
+    let fromTime = Date.now();
     let stopped = false;
 
     while (!stopped) {
         await resolveAfter(delayInMs);
-        const latestPosts = (await fetchTweets(userId)).sort(
+        const latestTweets = (await fetchTweets(userId)).sort(
             (a, b) => b.createdAt - a.createdAt,
         );
-        for (const post of latestPosts)
-            if (post.createdAt > fromTime) handleTweet(post);
-        fromTime = latestPosts[0]?.createdAt ?? Date.now();
+        for (const tweet of latestTweets)
+            if (tweet.createdAt > fromTime) handleTweet(tweet);
+        fromTime = latestTweets[0]?.createdAt ?? Date.now();
     }
 
     return () => (stopped = true);
@@ -102,7 +102,6 @@ const parseTweet = (tweetResult: any): Tweet => {
         const quotedTweet = unpackTweetResultWithVisibility(
             dto.quoted_status_result.result,
         );
-        console.log(quotedTweet, text, attachments);
         return {
             id,
             createdAt,
