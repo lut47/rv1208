@@ -1,10 +1,6 @@
 import { InputMedia, Message, TelegramClient } from "@mtcute/bun";
 import { logWithTime, resolveAfter } from "./shared";
-import {
-    fetchTwitterPosts,
-    pollTwitterPosts,
-    type TwitterPost,
-} from "./twitter";
+import { fetchTweets, pollTweets, type Tweet } from "./twitter";
 
 const sourceTwitterProfileId = "1642521833973981184";
 const sourceTgChannelId = -1004429239095;
@@ -45,7 +41,7 @@ const messageGroupAccumulator = createAsyncKeyedAccumulator<string, Message>(
     },
 );
 
-const copyTwitterPost = (post: TwitterPost) =>
+const copyTwitterPost = (post: Tweet) =>
     post.attachments.length
         ? tg.sendMediaGroup(
               targetTgChannelId,
@@ -109,22 +105,22 @@ if (doBackfill) {
     }
     logWithTime("backfilled telegram posts (if any)");
 
-    logWithTime("backfilling twitter posts");
-    const latestSourceTwitterProfilePosts = await fetchTwitterPosts(
-        sourceTwitterProfileId,
-    );
-    logWithTime("latest twitter posts has been fetched");
+    logWithTime("backfilling tweets");
+    const latestSourceTwitterProfilePosts = (
+        await fetchTweets(sourceTwitterProfileId)
+    ).sort((a, b) => a.createdAt - b.createdAt);
+    logWithTime("latest tweets has been fetched");
     for (const post of latestSourceTwitterProfilePosts)
         if (post.createdAt > fromTime) {
-            logWithTime(`copying twitter post ${post.id}`);
+            logWithTime(`copying tweet ${post.id}`);
             await copyTwitterPost(post);
-            logWithTime(`twitter post ${post.id} has been copied`);
+            logWithTime(`tweet ${post.id} has been copied`);
             logWithTime(
                 `(waiting ${_backfillDelayS}s to prevent flood block from telegram)`,
             );
             await resolveAfter(backfillDelayMs);
         }
-    logWithTime("backfilled twitter posts (if any)");
+    logWithTime("backfilled tweets (if any)");
 }
 
 tg.onNewMessage.add(async (message) => {
@@ -147,25 +143,25 @@ tg.onNewMessage.add(async (message) => {
     logWithTime(`telegram post ${message.id} has been copied`);
 });
 
-pollTwitterPosts(
+pollTweets(
     sourceTwitterProfileId,
     twitterPostPollingDelayInMs,
     fromTime,
-    async (post) => {
+    async (tweet) => {
         logWithTime(
-            `polled new twitter post ${post.id}: ${post.text || "(no text)"}`,
+            `polled new tweet ${tweet.id}: ${tweet.text || "(no text)"}`,
         );
-        logWithTime(`copying twitter post ${post.id}`);
-        if (post.attachments.length)
+        logWithTime(`copying tweet ${tweet.id}`);
+        if (tweet.attachments.length)
             await tg.sendMediaGroup(
                 targetTgChannelId,
-                post.attachments.map((attachment) =>
+                tweet.attachments.map((attachment) =>
                     attachment.type === "photo"
                         ? InputMedia.photo(attachment.url)
                         : InputMedia.video(attachment.url),
                 ),
             );
-        else await tg.sendText(targetTgChannelId, post.text);
-        logWithTime(`twitter post ${post.id} has been copied`);
+        else await tg.sendText(targetTgChannelId, tweet.text);
+        logWithTime(`tweet ${tweet.id} has been copied`);
     },
 );
