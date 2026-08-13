@@ -169,4 +169,4 @@ pollTweets(
 );
 
 // render.com bypass
-Bun.serve({ port: 4343, fetch: () => new Response() });
+Bun.serve({ port: process.env.PORT || 10000, fetch: () => new Response() });
