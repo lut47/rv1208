@@ -1,4 +1,9 @@
-import { InputMedia, Message, TelegramClient } from "@mtcute/bun";
+import {
+    InputMedia,
+    MemoryStorage,
+    Message,
+    TelegramClient,
+} from "@mtcute/bun";
 import { logWithTime, resolveAfter } from "./shared";
 import { fetchTweets, pollTweets, type Tweet } from "./twitter";
 
@@ -56,12 +61,15 @@ const copyTwitterPost = (post: Tweet) =>
 const tg = new TelegramClient({
     apiId: Number(process.env.TG_API_ID),
     apiHash: process.env.TG_API_HASH!,
+    storage: new MemoryStorage(),
 });
 
 logWithTime("connecting to telegram");
-if (process.env.TG_SESSION)
-    await tg.start({ session: process.env.TG_SESSION, sessionForce: true });
-else await tg.start();
+if (!process.env.TG_SESSION) {
+    await tg.start();
+    logWithTime("use this for TG_SESSION environment variable:");
+    console.log(await tg.exportSession());
+} else await tg.start({ session: process.env.TG_SESSION, sessionForce: true });
 logWithTime("connected to telegram");
 
 logWithTime("fetching the latest copied post date");
